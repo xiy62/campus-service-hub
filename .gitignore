@@ -1,0 +1,25 @@
+.DS_Store
+.idea/
+*.iml
+
+# Maven / Java
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+
+# Runtime data
+db_volumes/
+*.log
+
+# Environment
+.env
+.env.local
+ops/thread3.env
+
+# Local/internal docs and planning artifacts
+AGENTS.md
+TODO.md
+interview-prep/
+ops/
+
+# LocalStack / CDK output
+infrastructure/cdk.out/

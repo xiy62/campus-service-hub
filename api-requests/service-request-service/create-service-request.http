@@ -1,0 +1,14 @@
+### Create a new campus service request (via gateway)
+POST http://localhost:4004/api/service-requests
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "requestType": "SOFTWARE_LICENSE",
+  "studentId": "S1001099",
+  "studentEmail": "nina.park@campus.edu",
+  "department": "Data Science",
+  "submittedAt": "2026-04-03T10:30:00"
+}
+
+###

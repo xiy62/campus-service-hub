@@ -1,0 +1,43 @@
+server:
+  port: 4004 # Gateway listens on port 4004
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service-route
+          uri: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=1
+
+        # Route for /api/service-requests/** to request-service
+        - id: request-service-route
+          uri: ${REQUEST_SERVICE_URL:http://host.docker.internal:4000}
+          predicates:
+            - Path=/api/service-requests/**
+          filters:
+            - StripPrefix=1
+            - JwtValidation
+
+        # Route for /api-docs/requests to request-service /v3/api-docs
+        - id: api-docs-request-route
+          uri: ${REQUEST_SERVICE_URL:http://host.docker.internal:4000}
+          predicates:
+            - Path=/api-docs/requests
+          filters:
+            - RewritePath=/api-docs/requests,/v3/api-docs
+
+        - id: api-docs-auth-route
+          uri: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}
+          predicates:
+            - Path=/api-docs/auth
+          filters:
+            - RewritePath=/api-docs/auth,/v3/api-docs
+
+auth:
+  service:
+    url: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}

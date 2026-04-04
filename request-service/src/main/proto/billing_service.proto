@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "billing";
+
+service BillingService {
+  rpc CreateBillingAccount (BillingRequest) returns (BillingResponse);
+}
+
+message BillingRequest {
+  string requestId = 1;
+  string requestType = 2;
+  string studentEmail = 3;
+}
+
+message BillingResponse {
+  string accountId = 1;
+  string status = 2;
+}

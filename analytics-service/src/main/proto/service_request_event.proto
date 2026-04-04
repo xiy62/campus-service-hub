@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package request.events;
+option java_multiple_files = true;
+
+message ServiceRequestEvent {
+  string request_id = 1;
+  string request_type = 2;
+  string student_id = 3;
+  string student_email = 4;
+  string department = 5;
+  string submitted_at = 6;
+  string status = 7;
+  string event_type = 8;
+}

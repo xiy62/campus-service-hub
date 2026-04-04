@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: request-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/request_service_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+  sql:
+    init:
+      mode: ${SPRING_SQL_INIT_MODE:always}
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+server:
+  port: 4000
+
+billing:
+  service:
+    address: ${BILLING_SERVICE_ADDRESS:localhost}
+    grpc:
+      port: ${BILLING_SERVICE_GRPC_PORT:9001}
+
+logging:
+  level:
+    root: info

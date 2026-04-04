@@ -1,0 +1,8 @@
+GRPC localhost:9001/BillingService/CreateBillingAccount
+Content-Type: application/json
+
+{
+  "requestId": "0602",
+  "requestType": "SOFTWARE_LICENSE",
+  "studentEmail": "xiji@test.com"
+}
