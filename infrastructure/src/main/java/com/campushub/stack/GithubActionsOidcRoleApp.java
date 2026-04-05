@@ -8,7 +8,7 @@ import software.amazon.awscdk.StackProps;
 public class GithubActionsOidcRoleApp {
 
     public static void main(String[] args) {
-        App app = new App(AppProps.builder().outdir("./cdk.out").build());
+        App app = new App(AppProps.builder().outdir(cdkOutDir()).build());
 
         String account = System.getenv("CDK_DEFAULT_ACCOUNT");
         String region = System.getenv("CDK_DEFAULT_REGION");
@@ -34,6 +34,10 @@ public class GithubActionsOidcRoleApp {
         );
         app.synth();
         System.out.println("GitHub OIDC role stack synthesized.");
+    }
+
+    private static String cdkOutDir() {
+        return System.getenv().getOrDefault("CDK_OUTDIR", "./cdk.out");
     }
 
     private static String requiredEnv(String key) {

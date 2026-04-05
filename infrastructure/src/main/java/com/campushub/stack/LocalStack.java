@@ -248,7 +248,7 @@ public class LocalStack extends Stack {
     }
 
     public static void main(String[] args) {
-        App app = new App(AppProps.builder().outdir("./cdk.out").build());
+        App app = new App(AppProps.builder().outdir(cdkOutDir()).build());
 
         StackProps props = StackProps.builder()
                 .synthesizer(new BootstraplessSynthesizer())
@@ -257,5 +257,9 @@ public class LocalStack extends Stack {
         new LocalStack(app, "campus-service-hub", props);
         app.synth();
         System.out.println("App synthesizing in process...");
+    }
+
+    private static String cdkOutDir() {
+        return System.getenv().getOrDefault("CDK_OUTDIR", "./cdk.out");
     }
 }

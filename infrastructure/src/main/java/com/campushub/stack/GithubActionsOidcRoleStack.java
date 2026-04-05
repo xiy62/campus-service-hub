@@ -96,6 +96,23 @@ public class GithubActionsOidcRoleStack extends Stack {
                                                 .effect(Effect.ALLOW)
                                                 .actions(List.of("sts:AssumeRole"))
                                                 .resources(List.of("arn:aws:iam::*:role/cdk-hnb659fds-*"))
+                                                .build(),
+                                        PolicyStatement.Builder.create()
+                                                .effect(Effect.ALLOW)
+                                                .actions(List.of(
+                                                        "s3:GetBucketLocation",
+                                                        "s3:ListBucket"
+                                                ))
+                                                .resources(List.of("arn:aws:s3:::cdk-hnb659fds-assets-*"))
+                                                .build(),
+                                        PolicyStatement.Builder.create()
+                                                .effect(Effect.ALLOW)
+                                                .actions(List.of(
+                                                        "s3:GetObject",
+                                                        "s3:PutObject",
+                                                        "s3:DeleteObject"
+                                                ))
+                                                .resources(List.of("arn:aws:s3:::cdk-hnb659fds-assets-*/*"))
                                                 .build()
                                 ))
                                 .build()

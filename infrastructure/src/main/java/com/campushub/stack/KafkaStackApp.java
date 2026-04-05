@@ -8,7 +8,7 @@ import software.amazon.awscdk.StackProps;
 public class KafkaStackApp {
 
     public static void main(String[] args) {
-        App app = new App(AppProps.builder().outdir("./cdk.out").build());
+        App app = new App(AppProps.builder().outdir(cdkOutDir()).build());
 
         String account = System.getenv("CDK_DEFAULT_ACCOUNT");
         String region = System.getenv("CDK_DEFAULT_REGION");
@@ -23,5 +23,9 @@ public class KafkaStackApp {
         new KafkaStack(app, "campus-service-hub-kafka", props);
         app.synth();
         System.out.println("Kafka stack synthesized.");
+    }
+
+    private static String cdkOutDir() {
+        return System.getenv().getOrDefault("CDK_OUTDIR", "./cdk.out");
     }
 }
