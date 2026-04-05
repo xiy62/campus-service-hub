@@ -108,7 +108,7 @@ jobs:
           cd infrastructure
           mvn -q -DskipTests compile
           cdk deploy "${CDK_ECR_STACK_NAME}" \
-            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.EcrRepositoriesApp" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.EcrRepositoriesApp" \
             --require-approval never
 
       - name: Resolve ECR and deployment defaults
@@ -202,10 +202,10 @@ jobs:
           cd infrastructure
           mvn -q -DskipTests compile
           cdk deploy "${CDK_STACK_NAME}" \
-            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.LocalStack" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.LocalStack" \
             --require-approval never
           cdk deploy "${CDK_KAFKA_STACK_NAME}" \
-            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.KafkaStackApp" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.KafkaStackApp" \
             --require-approval never
 
       - name: Resolve ECS cluster name
