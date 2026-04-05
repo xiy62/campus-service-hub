@@ -89,13 +89,17 @@ Recommended deployment order:
 
 1. Deploy OIDC stack once:
    - `campus-service-hub-github-oidc`
-2. Run GitHub Actions `CD` workflow:
+2. Run GitHub Actions `Infra Deploy` workflow when infrastructure changes:
    - Deploys `campus-service-hub-ecr`
-   - Builds and pushes images to ECR
    - Deploys `campus-service-hub` and `campus-service-hub-kafka`
+   - Optionally deploys `campus-service-hub-github-oidc` when `GITHUB_OWNER` and `GITHUB_REPO` are set
+3. Run GitHub Actions `App Deploy` workflow when service code changes:
+   - Builds and pushes images to ECR
    - Forces ECS rolling deployment
 
 Note:
 - `campus-service-hub` now reads `SPRING_KAFKA_BOOTSTRAP_SERVERS` from `KAFKA_BOOTSTRAP_SERVERS` env var during synth/deploy fallback wiring.
 - If not provided, it uses a placeholder value and should be overridden in runtime config.
 - `campus-service-hub` reads `ECS_SERVICE_DESIRED_COUNT` (default `1`) for all ECS services.
+- `Infra Deploy` triggers only on `infrastructure/**` changes (or manual dispatch).
+- `App Deploy` triggers only on service directory changes (or manual dispatch).

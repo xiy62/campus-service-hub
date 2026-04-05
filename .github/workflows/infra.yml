@@ -1,0 +1,121 @@
+name: Infra Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "infrastructure/**"
+      - ".github/workflows/infra.yml"
+
+jobs:
+  deploy-infra:
+    name: Deploy CDK Stacks
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      CDK_STACK_NAME: ${{ vars.CDK_STACK_NAME }}
+      CDK_ECR_STACK_NAME: ${{ vars.CDK_ECR_STACK_NAME }}
+      CDK_KAFKA_STACK_NAME: ${{ vars.CDK_KAFKA_STACK_NAME }}
+      CDK_OIDC_STACK_NAME: ${{ vars.CDK_OIDC_STACK_NAME }}
+      GITHUB_OWNER: ${{ vars.GITHUB_OWNER }}
+      GITHUB_REPO: ${{ vars.GITHUB_REPO }}
+      GITHUB_BRANCH: ${{ vars.GITHUB_BRANCH }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required infra settings
+        run: |
+          : "${CDK_STACK_NAME:=campus-service-hub}"
+          : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+          : "${CDK_KAFKA_STACK_NAME:=campus-service-hub-kafka}"
+          : "${CDK_OIDC_STACK_NAME:=campus-service-hub-github-oidc}"
+          : "${GITHUB_BRANCH:=main}"
+
+          required=(
+            AWS_REGION
+            AWS_ROLE_ARN
+          )
+
+          missing=0
+          for key in "${required[@]}"; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required GitHub Actions setting: $key" >&2
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: Compile infrastructure module
+        run: |
+          set -euo pipefail
+          cd infrastructure
+          mvn -q -DskipTests compile
+
+      - name: Deploy ECR stack
+        run: |
+          set -euo pipefail
+          : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+          cd infrastructure
+          cdk deploy "${CDK_ECR_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.EcrRepositoriesApp" \
+            --require-approval never
+
+      - name: Deploy core and Kafka stacks
+        run: |
+          set -euo pipefail
+          : "${CDK_STACK_NAME:=campus-service-hub}"
+          : "${CDK_KAFKA_STACK_NAME:=campus-service-hub-kafka}"
+          cd infrastructure
+          cdk deploy "${CDK_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.LocalStack" \
+            --require-approval never
+          cdk deploy "${CDK_KAFKA_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.KafkaStackApp" \
+            --require-approval never
+
+      - name: Deploy GitHub OIDC stack (optional)
+        if: ${{ env.GITHUB_OWNER != '' && env.GITHUB_REPO != '' }}
+        run: |
+          set -euo pipefail
+          : "${CDK_OIDC_STACK_NAME:=campus-service-hub-github-oidc}"
+          : "${GITHUB_BRANCH:=main}"
+          cd infrastructure
+          GITHUB_OWNER="${GITHUB_OWNER}" \
+          GITHUB_REPO="${GITHUB_REPO}" \
+          GITHUB_BRANCH="${GITHUB_BRANCH}" \
+          cdk deploy "${CDK_OIDC_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.GithubActionsOidcRoleApp" \
+            --require-approval never
