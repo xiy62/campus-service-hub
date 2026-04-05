@@ -162,11 +162,35 @@ jobs:
           : "${CDK_STACK_NAME:=campus-service-hub}"
           : "${CDK_KAFKA_STACK_NAME:=campus-service-hub-kafka}"
           cd infrastructure
+
+          # First pass: ensure VPC and core infra exist.
           cdk deploy "${CDK_STACK_NAME}" \
             --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.LocalStack" \
             --require-approval never
+
+          # Deploy Kafka after VPC exists.
           cdk deploy "${CDK_KAFKA_STACK_NAME}" \
             --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.KafkaStackApp" \
+            --require-approval never
+
+          # Reconcile core with resolved MSK bootstrap endpoints.
+          KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stacks --stack-name "${CDK_KAFKA_STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='KafkaClusterArn'].OutputValue | [0]" --output text)"
+          if [ -z "${KAFKA_CLUSTER_ARN}" ] || [ "${KAFKA_CLUSTER_ARN}" = "None" ] || [ "${KAFKA_CLUSTER_ARN}" = "null" ]; then
+            echo "Failed to resolve KafkaClusterArn from ${CDK_KAFKA_STACK_NAME}." >&2
+            exit 1
+          fi
+
+          KAFKA_BOOTSTRAP_SERVERS="$(aws kafka get-bootstrap-brokers --cluster-arn "${KAFKA_CLUSTER_ARN}" --query 'BootstrapBrokerStringTls' --output text)"
+          if [ -z "${KAFKA_BOOTSTRAP_SERVERS}" ] || [ "${KAFKA_BOOTSTRAP_SERVERS}" = "None" ] || [ "${KAFKA_BOOTSTRAP_SERVERS}" = "null" ]; then
+            echo "Failed to resolve MSK bootstrap brokers for ${KAFKA_CLUSTER_ARN}." >&2
+            exit 1
+          fi
+
+          KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS}" \
+          KAFKA_SECURITY_PROTOCOL="SSL" \
+          KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM="https" \
+          cdk deploy "${CDK_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.campushub.stack.LocalStack" \
             --require-approval never
 
       - name: Deploy GitHub OIDC stack (optional)

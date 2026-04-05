@@ -9,6 +9,7 @@ import software.amazon.awscdk.services.ecr.Repository;
 import software.amazon.awscdk.services.ecs.*;
 import software.amazon.awscdk.services.ecs.Protocol;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedFargateService;
+import software.amazon.awscdk.services.elasticloadbalancingv2.HealthCheck;
 import software.amazon.awscdk.services.logs.LogGroup;
 import software.amazon.awscdk.services.logs.RetentionDays;
 import software.amazon.awscdk.services.rds.*;
@@ -39,7 +40,7 @@ public class LocalStack extends Stack {
                         List.of(4005),
                         authServiceDb,
                         Map.of("JWT_SECRET", "Q2hvbGNvbGF0ZXMgdGV4dCB3aXRoIDMyYnl0ZXMgaGVyZSE"));
-        authService.getNode().addDependency(authServiceDb);
+        authServiceDb.getConnections().allowDefaultPortFrom(authService);
 
         FargateService billingService =
                 createFargateService("BillingService",
@@ -63,10 +64,14 @@ public class LocalStack extends Stack {
                         "BILLING_SERVICE_ADDRESS", "billing-service.campus-service-hub.local",
                         "BILLING_SERVICE_GRPC_PORT", "9001"
                 ));
-        requestService.getNode().addDependency(requestServiceDb);
         requestService.getNode().addDependency(billingService);
+        requestServiceDb.getConnections().allowDefaultPortFrom(requestService);
 
-        createApiGatewayService();
+        ApplicationLoadBalancedFargateService apiGateway = createApiGatewayService();
+
+        authService.getConnections().allowFrom(apiGateway.getService(), Port.tcp(4005));
+        requestService.getConnections().allowFrom(Peer.ipv4(this.vpc.getVpcCidrBlock()), Port.tcp(4000));
+        billingService.getConnections().allowFrom(Peer.ipv4(this.vpc.getVpcCidrBlock()), Port.tcp(9001));
     }
 
     private Vpc createVpc() {
@@ -139,6 +144,14 @@ public class LocalStack extends Stack {
                 "SPRING_KAFKA_BOOTSTRAP_SERVERS",
                 System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka-bootstrap-not-configured:9092")
         );
+        envVars.put(
+                "SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL",
+                System.getenv().getOrDefault("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
+        );
+        envVars.put(
+                "SPRING_KAFKA_PROPERTIES_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM",
+                System.getenv().getOrDefault("KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM", "https")
+        );
 
         if (additionalEnvVars != null) {
             envVars.putAll(additionalEnvVars);
@@ -167,10 +180,13 @@ public class LocalStack extends Stack {
                 .assignPublicIp(false)
                 .serviceName(imageName)
                 .desiredCount(this.desiredServiceCount)
+                .cloudMapOptions(CloudMapOptions.builder()
+                        .name(imageName)
+                        .build())
                 .build();
     }
 
-    private void createApiGatewayService() {
+    private ApplicationLoadBalancedFargateService createApiGatewayService() {
         FargateTaskDefinition taskDefinition =
                 FargateTaskDefinition.Builder.create(this, "APIGatewayTaskDefinition")
                         .cpu(256)
@@ -210,8 +226,14 @@ public class LocalStack extends Stack {
                         .serviceName("api-gateway")
                         .taskDefinition(taskDefinition)
                         .desiredCount(this.desiredServiceCount)
-                        .healthCheckGracePeriod(Duration.seconds(60))
+                        .healthCheckGracePeriod(Duration.seconds(180))
                         .build();
+
+        apiGateway.getTargetGroup().configureHealthCheck(HealthCheck.builder()
+                .path("/")
+                .healthyHttpCodes("200-499")
+                .build());
+        return apiGateway;
     }
 
     private ContainerImage containerImageForService(String serviceName) {
