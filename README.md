@@ -71,3 +71,31 @@ curl http://localhost:4004/api/service-requests \
   - `http://localhost:4004/api-docs/requests`
 - Auth service docs via gateway:
   - `http://localhost:4004/api-docs/auth`
+
+## AWS CDK stacks
+
+To avoid long rollback loops, Kafka is separated from the core stack:
+
+- `campus-service-hub` (core)
+  - VPC, ECS cluster/services, RDS, API Gateway/ALB
+- `campus-service-hub-kafka` (Kafka-only)
+  - MSK cluster
+- `campus-service-hub-ecr`
+  - ECR repositories
+- `campus-service-hub-github-oidc`
+  - GitHub Actions OIDC deploy role
+
+Recommended deployment order:
+
+1. Deploy OIDC stack once:
+   - `campus-service-hub-github-oidc`
+2. Run GitHub Actions `CD` workflow:
+   - Deploys `campus-service-hub-ecr`
+   - Builds and pushes images to ECR
+   - Deploys `campus-service-hub` and `campus-service-hub-kafka`
+   - Forces ECS rolling deployment
+
+Note:
+- `campus-service-hub` now reads `SPRING_KAFKA_BOOTSTRAP_SERVERS` from `KAFKA_BOOTSTRAP_SERVERS` env var during synth/deploy fallback wiring.
+- If not provided, it uses a placeholder value and should be overridden in runtime config.
+- `campus-service-hub` reads `ECS_SERVICE_DESIRED_COUNT` (default `1`) for all ECS services.

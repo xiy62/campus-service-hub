@@ -8,7 +8,7 @@ spring:
     gateway:
       routes:
         - id: auth-service-route
-          uri: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}
+          uri: ${AUTH_SERVICE_URL:http://auth-service.campus-service-hub.local:4005}
           predicates:
             - Path=/auth/**
           filters:
@@ -16,7 +16,7 @@ spring:
 
         # Route for /api/service-requests/** to request-service
         - id: request-service-route
-          uri: ${REQUEST_SERVICE_URL:http://host.docker.internal:4000}
+          uri: ${REQUEST_SERVICE_URL:http://request-service.campus-service-hub.local:4000}
           predicates:
             - Path=/api/service-requests/**
           filters:
@@ -25,14 +25,14 @@ spring:
 
         # Route for /api-docs/requests to request-service /v3/api-docs
         - id: api-docs-request-route
-          uri: ${REQUEST_SERVICE_URL:http://host.docker.internal:4000}
+          uri: ${REQUEST_SERVICE_URL:http://request-service.campus-service-hub.local:4000}
           predicates:
             - Path=/api-docs/requests
           filters:
             - RewritePath=/api-docs/requests,/v3/api-docs
 
         - id: api-docs-auth-route
-          uri: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}
+          uri: ${AUTH_SERVICE_URL:http://auth-service.campus-service-hub.local:4005}
           predicates:
             - Path=/api-docs/auth
           filters:
@@ -40,4 +40,4 @@ spring:
 
 auth:
   service:
-    url: ${AUTH_SERVICE_URL:http://host.docker.internal:4005}
+    url: ${AUTH_SERVICE_URL:http://auth-service.campus-service-hub.local:4005}

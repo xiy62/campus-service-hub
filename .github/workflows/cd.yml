@@ -20,6 +20,7 @@ jobs:
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       CDK_STACK_NAME: ${{ vars.CDK_STACK_NAME }}
       CDK_ECR_STACK_NAME: ${{ vars.CDK_ECR_STACK_NAME }}
+      CDK_KAFKA_STACK_NAME: ${{ vars.CDK_KAFKA_STACK_NAME }}
       ECR_REPOSITORY_AUTH_SERVICE: ${{ vars.ECR_REPOSITORY_AUTH_SERVICE }}
       ECR_REPOSITORY_REQUEST_SERVICE: ${{ vars.ECR_REPOSITORY_REQUEST_SERVICE }}
       ECR_REPOSITORY_BILLING_SERVICE: ${{ vars.ECR_REPOSITORY_BILLING_SERVICE }}
@@ -31,6 +32,7 @@ jobs:
       ECS_SERVICE_BILLING_SERVICE: ${{ vars.ECS_SERVICE_BILLING_SERVICE }}
       ECS_SERVICE_ANALYTICS_SERVICE: ${{ vars.ECS_SERVICE_ANALYTICS_SERVICE }}
       ECS_SERVICE_API_GATEWAY: ${{ vars.ECS_SERVICE_API_GATEWAY }}
+      ECS_SERVICE_DESIRED_COUNT: ${{ vars.ECS_SERVICE_DESIRED_COUNT }}
 
     steps:
       - name: Checkout
@@ -40,6 +42,7 @@ jobs:
         run: |
           : "${CDK_STACK_NAME:=campus-service-hub}"
           : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+          : "${CDK_KAFKA_STACK_NAME:=campus-service-hub-kafka}"
 
           required=(
             AWS_REGION
@@ -83,12 +86,38 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Resolve ECS deployment targets
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: Deploy ECR stack
+        run: |
+          set -euo pipefail
+          : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+          cd infrastructure
+          mvn -q -DskipTests compile
+          cdk deploy "${CDK_ECR_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.EcrRepositoriesApp" \
+            --require-approval never
+
+      - name: Resolve ECR and deployment defaults
         run: |
           set -euo pipefail
 
           : "${CDK_STACK_NAME:=campus-service-hub}"
           : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+          : "${CDK_KAFKA_STACK_NAME:=campus-service-hub-kafka}"
 
           if [ -z "${ECR_REPOSITORY_AUTH_SERVICE}" ] && [ -n "${CDK_ECR_STACK_NAME}" ]; then
             ECR_REPOSITORY_AUTH_SERVICE="$(aws cloudformation describe-stacks --stack-name "${CDK_ECR_STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='EcrRepositoryAuthServiceName'].OutputValue | [0]" --output text)"
@@ -124,30 +153,21 @@ jobs:
           : "${ECS_SERVICE_BILLING_SERVICE:=billing-service}"
           : "${ECS_SERVICE_ANALYTICS_SERVICE:=analytics-service}"
           : "${ECS_SERVICE_API_GATEWAY:=api-gateway}"
-
-          if [ -z "${ECS_CLUSTER_NAME}" ]; then
-            ECS_CLUSTER_NAME="$(aws cloudformation describe-stack-resources \
-              --stack-name "${CDK_STACK_NAME}" \
-              --query "StackResources[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId | [0]" \
-              --output text)"
-          fi
-
-          if [ -z "${ECS_CLUSTER_NAME}" ] || [ "${ECS_CLUSTER_NAME}" = "None" ] || [ "${ECS_CLUSTER_NAME}" = "null" ]; then
-            echo "Failed to resolve ECS_CLUSTER_NAME. Set vars.ECS_CLUSTER_NAME or vars.CDK_STACK_NAME." >&2
-            exit 1
-          fi
+          : "${ECS_SERVICE_DESIRED_COUNT:=1}"
 
           echo "ECR_REPOSITORY_AUTH_SERVICE=${ECR_REPOSITORY_AUTH_SERVICE}" >> "$GITHUB_ENV"
           echo "ECR_REPOSITORY_REQUEST_SERVICE=${ECR_REPOSITORY_REQUEST_SERVICE}" >> "$GITHUB_ENV"
           echo "ECR_REPOSITORY_BILLING_SERVICE=${ECR_REPOSITORY_BILLING_SERVICE}" >> "$GITHUB_ENV"
           echo "ECR_REPOSITORY_ANALYTICS_SERVICE=${ECR_REPOSITORY_ANALYTICS_SERVICE}" >> "$GITHUB_ENV"
           echo "ECR_REPOSITORY_API_GATEWAY=${ECR_REPOSITORY_API_GATEWAY}" >> "$GITHUB_ENV"
-          echo "ECS_CLUSTER_NAME=${ECS_CLUSTER_NAME}" >> "$GITHUB_ENV"
+          echo "CDK_STACK_NAME=${CDK_STACK_NAME}" >> "$GITHUB_ENV"
+          echo "CDK_KAFKA_STACK_NAME=${CDK_KAFKA_STACK_NAME}" >> "$GITHUB_ENV"
           echo "ECS_SERVICE_AUTH_SERVICE=${ECS_SERVICE_AUTH_SERVICE}" >> "$GITHUB_ENV"
           echo "ECS_SERVICE_REQUEST_SERVICE=${ECS_SERVICE_REQUEST_SERVICE}" >> "$GITHUB_ENV"
           echo "ECS_SERVICE_BILLING_SERVICE=${ECS_SERVICE_BILLING_SERVICE}" >> "$GITHUB_ENV"
           echo "ECS_SERVICE_ANALYTICS_SERVICE=${ECS_SERVICE_ANALYTICS_SERVICE}" >> "$GITHUB_ENV"
           echo "ECS_SERVICE_API_GATEWAY=${ECS_SERVICE_API_GATEWAY}" >> "$GITHUB_ENV"
+          echo "ECS_SERVICE_DESIRED_COUNT=${ECS_SERVICE_DESIRED_COUNT}" >> "$GITHUB_ENV"
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -176,15 +196,46 @@ jobs:
           build_and_push "./analytics-service" "${ECR_REPOSITORY_ANALYTICS_SERVICE}"
           build_and_push "./api-gateway" "${ECR_REPOSITORY_API_GATEWAY}"
 
+      - name: Deploy core and Kafka stacks
+        run: |
+          set -euo pipefail
+          cd infrastructure
+          mvn -q -DskipTests compile
+          cdk deploy "${CDK_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.LocalStack" \
+            --require-approval never
+          cdk deploy "${CDK_KAFKA_STACK_NAME}" \
+            --app "mvn -q -DskipTests exec:java -Dexec.mainClass=com.pm.stack.KafkaStackApp" \
+            --require-approval never
+
+      - name: Resolve ECS cluster name
+        run: |
+          set -euo pipefail
+          : "${CDK_STACK_NAME:=campus-service-hub}"
+
+          if [ -z "${ECS_CLUSTER_NAME}" ]; then
+            ECS_CLUSTER_NAME="$(aws cloudformation describe-stack-resources \
+              --stack-name "${CDK_STACK_NAME}" \
+              --query "StackResources[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId | [0]" \
+              --output text)"
+          fi
+
+          if [ -z "${ECS_CLUSTER_NAME}" ] || [ "${ECS_CLUSTER_NAME}" = "None" ] || [ "${ECS_CLUSTER_NAME}" = "null" ]; then
+            echo "Failed to resolve ECS_CLUSTER_NAME. Set vars.ECS_CLUSTER_NAME or vars.CDK_STACK_NAME." >&2
+            exit 1
+          fi
+
+          echo "ECS_CLUSTER_NAME=${ECS_CLUSTER_NAME}" >> "$GITHUB_ENV"
+
       - name: Trigger ECS rolling deploy
         run: |
           set -euo pipefail
 
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}" --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
 
       - name: Wait for ECS services to stabilize
         run: |

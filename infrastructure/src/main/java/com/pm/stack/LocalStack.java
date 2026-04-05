@@ -4,37 +4,33 @@ package com.pm.stack;
 import software.amazon.awscdk.*;
 import software.amazon.awscdk.services.ec2.*;
 import software.amazon.awscdk.services.ec2.InstanceType;
+import software.amazon.awscdk.services.ecr.IRepository;
+import software.amazon.awscdk.services.ecr.Repository;
 import software.amazon.awscdk.services.ecs.*;
 import software.amazon.awscdk.services.ecs.Protocol;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedFargateService;
 import software.amazon.awscdk.services.logs.LogGroup;
 import software.amazon.awscdk.services.logs.RetentionDays;
-import software.amazon.awscdk.services.msk.CfnCluster;
 import software.amazon.awscdk.services.rds.*;
-import software.amazon.awscdk.services.route53.CfnHealthCheck;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class LocalStack extends Stack {
     private final Vpc vpc;
     private final Cluster ecsCluster;
+    private final int desiredServiceCount;
 
     public LocalStack(final App scope, final String id, final StackProps props) {
 
         super(scope, id, props);
 
         this.vpc = createVpc();
+        this.desiredServiceCount = defaultDesiredServiceCount();
 
-        DatabaseInstance authServiceDb = createDatabase("AuthServiceDB", "auth-service-db");
-        DatabaseInstance requestServiceDb = createDatabase("RequestServiceDB", "request-service-db");
-
-        CfnHealthCheck authDbHealthCheck = createDbHealthCheck(authServiceDb, "AuthServiceDBHealthCheck");
-        CfnHealthCheck requestDbHealthCheck = createDbHealthCheck(requestServiceDb, "RequestServiceDBHealthCheck");
-
-        CfnCluster mskCluster = createMskCluster();
+        DatabaseInstance authServiceDb = createDatabase("AuthServiceDB", dbNameForService("auth-service"));
+        DatabaseInstance requestServiceDb = createDatabase("RequestServiceDB", dbNameForService("request-service"));
         this.ecsCluster = createEcsCluster();
 
         FargateService authService =
@@ -43,7 +39,6 @@ public class LocalStack extends Stack {
                         List.of(4005),
                         authServiceDb,
                         Map.of("JWT_SECRET", "Q2hvbGNvbGF0ZXMgdGV4dCB3aXRoIDMyYnl0ZXMgaGVyZSE"));
-        authService.getNode().addDependency(authDbHealthCheck);
         authService.getNode().addDependency(authServiceDb);
 
         FargateService billingService =
@@ -60,20 +55,16 @@ public class LocalStack extends Stack {
                         null,
                         null);
 
-        analyticsService.getNode().addDependency(mskCluster);
-
         FargateService requestService = createFargateService("RequestService",
                 "request-service",
                 List.of(4000),
                 requestServiceDb,
                 Map.of(
-                        "BILLING_SERVICE_ADDRESS", "host.docker.internal",
+                        "BILLING_SERVICE_ADDRESS", "billing-service.campus-service-hub.local",
                         "BILLING_SERVICE_GRPC_PORT", "9001"
                 ));
         requestService.getNode().addDependency(requestServiceDb);
-        requestService.getNode().addDependency(requestDbHealthCheck);
         requestService.getNode().addDependency(billingService);
-        requestService.getNode().addDependency(mskCluster);
 
         createApiGatewayService();
     }
@@ -94,40 +85,12 @@ public class LocalStack extends Stack {
                                 .version(PostgresEngineVersion.VER_17_2)
                                 .build()))
                 .vpc(this.vpc)
-                .instanceType(InstanceType.of(InstanceClass.BURSTABLE2, InstanceSize.MICRO))
+                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
                 .allocatedStorage(20)
                 .credentials(Credentials.fromGeneratedSecret("root"))
                 .databaseName(dbName)
                 .removalPolicy(RemovalPolicy.DESTROY)
                 .build();
-    }
-
-    private CfnHealthCheck createDbHealthCheck(DatabaseInstance db, String id) {
-        return CfnHealthCheck.Builder.create(this, id)
-                .healthCheckConfig(CfnHealthCheck.HealthCheckConfigProperty.builder()
-                        .type("TCP")
-                        .port(Token.asNumber(db.getDbInstanceEndpointPort()))
-                        .ipAddress(db.getDbInstanceEndpointAddress())
-                        .requestInterval(30)
-                        .failureThreshold(3)
-                        .build())
-                .build();
-    }
-
-    private CfnCluster createMskCluster() {
-        return CfnCluster.Builder.create(this, "MskCluster")
-                .clusterName("kafka-cluster")
-                .kafkaVersion("2.8.0")
-                .numberOfBrokerNodes(2)
-                .brokerNodeGroupInfo(CfnCluster.BrokerNodeGroupInfoProperty.builder()
-                        .instanceType("kafka.t3.small")
-                        .clientSubnets(this.vpc.getPrivateSubnets().stream()
-                                .map(ISubnet::getSubnetId)
-                                .collect(Collectors.toList()))
-                        .brokerAzDistribution("DEFAULT")
-                        .build())
-                .build();
-
     }
 
     private Cluster createEcsCluster() {
@@ -153,7 +116,7 @@ public class LocalStack extends Stack {
 
         ContainerDefinitionOptions.Builder containerOptions =
                 ContainerDefinitionOptions.builder()
-                        .image(ContainerImage.fromRegistry(imageName))
+                        .image(containerImageForService(imageName))
                         .portMappings(ports.stream()
                                 .map(port -> PortMapping.builder()
                                         .containerPort(port)
@@ -172,17 +135,20 @@ public class LocalStack extends Stack {
 
 
         Map<String, String> envVars = new HashMap<>();
-        envVars.put("SPRING_KAFKA_BOOTSTRAP_SERVERS", "localhost.localstack.cloud:4510, localhost.localstack.cloud:4511, localhost.localstack.cloud:4512");
+        envVars.put(
+                "SPRING_KAFKA_BOOTSTRAP_SERVERS",
+                System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka-bootstrap-not-configured:9092")
+        );
 
         if (additionalEnvVars != null) {
             envVars.putAll(additionalEnvVars);
         }
 
         if (db != null) {
-            envVars.put("SPRING_DATASOURCE_URL", "jdbc:postgresql://%s:%s/%s-db".formatted(
+            envVars.put("SPRING_DATASOURCE_URL", "jdbc:postgresql://%s:%s/%s".formatted(
                     db.getDbInstanceEndpointAddress(),
                     db.getDbInstanceEndpointPort(),
-                    imageName
+                    dbNameForService(imageName)
             ));
             envVars.put("SPRING_DATASOURCE_USERNAME", "root");
             envVars.put("SPRING_DATASOURCE_PASSWORD",
@@ -200,6 +166,7 @@ public class LocalStack extends Stack {
                 .taskDefinition(taskDefinition)
                 .assignPublicIp(false)
                 .serviceName(imageName)
+                .desiredCount(this.desiredServiceCount)
                 .build();
     }
 
@@ -212,10 +179,11 @@ public class LocalStack extends Stack {
 
         ContainerDefinitionOptions containerOptions =
                 ContainerDefinitionOptions.builder()
-                        .image(ContainerImage.fromRegistry("api-gateway"))
+                        .image(containerImageForService("api-gateway"))
                         .environment(Map.of(
                                 "SPRING_PROFILES_ACTIVE", "prod",
-                                "AUTH_SERVICE_URL", "http://host.docker.internal:4005"
+                                "AUTH_SERVICE_URL", "http://auth-service.campus-service-hub.local:4005",
+                                "REQUEST_SERVICE_URL", "http://request-service.campus-service-hub.local:4000"
                         ))
                         .portMappings(List.of(4004).stream()
                                 .map(port -> PortMapping.builder()
@@ -241,9 +209,42 @@ public class LocalStack extends Stack {
                         .cluster(ecsCluster)
                         .serviceName("api-gateway")
                         .taskDefinition(taskDefinition)
-                        .desiredCount(1)
+                        .desiredCount(this.desiredServiceCount)
                         .healthCheckGracePeriod(Duration.seconds(60))
                         .build();
+    }
+
+    private ContainerImage containerImageForService(String serviceName) {
+        String repositoryName = repositoryNameForService(serviceName);
+        IRepository repository = Repository.fromRepositoryName(
+                this,
+                repositoryImportIdForService(serviceName),
+                repositoryName
+        );
+        return ContainerImage.fromEcrRepository(repository, "latest");
+    }
+
+    private String repositoryNameForService(String serviceName) {
+        return "campus/" + serviceName;
+    }
+
+    private String repositoryImportIdForService(String serviceName) {
+        return serviceName.replaceAll("[^A-Za-z0-9]", "") + "Repository";
+    }
+
+    private int defaultDesiredServiceCount() {
+        String desiredCount = System.getenv().getOrDefault("ECS_SERVICE_DESIRED_COUNT", "1");
+        try {
+            int parsed = Integer.parseInt(desiredCount);
+            return Math.max(parsed, 1);
+        } catch (NumberFormatException ex) {
+            return 1;
+        }
+    }
+
+    private String dbNameForService(String serviceName) {
+        // RDS DBName must be alphanumeric and start with a letter.
+        return serviceName.replaceAll("[^A-Za-z0-9]", "") + "db";
     }
 
     public static void main(String[] args) {
@@ -253,7 +254,7 @@ public class LocalStack extends Stack {
                 .synthesizer(new BootstraplessSynthesizer())
                 .build();
 
-        new LocalStack(app, "localstack", props);
+        new LocalStack(app, "campus-service-hub", props);
         app.synth();
         System.out.println("App synthesizing in process...");
     }
