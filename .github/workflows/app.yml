@@ -144,6 +144,9 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push service images
         env:
           IMAGE_TAG: ${{ github.sha }}
@@ -156,10 +159,13 @@ jobs:
             local repository="$2"
             local image_uri="${ECR_REGISTRY}/${repository}"
 
-            echo "Building ${image_uri}:${IMAGE_TAG}"
-            docker build -t "${image_uri}:${IMAGE_TAG}" -t "${image_uri}:latest" "${context}"
-            docker push "${image_uri}:${IMAGE_TAG}"
-            docker push "${image_uri}:latest"
+            echo "Building linux/amd64 ${image_uri}:${IMAGE_TAG}"
+            docker buildx build \
+              --platform linux/amd64 \
+              --tag "${image_uri}:${IMAGE_TAG}" \
+              --tag "${image_uri}:latest" \
+              --push \
+              "${context}"
           }
 
           build_and_push "./auth-service" "${ECR_REPOSITORY_AUTH_SERVICE}"
