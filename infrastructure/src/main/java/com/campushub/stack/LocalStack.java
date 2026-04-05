@@ -142,7 +142,7 @@ public class LocalStack extends Stack {
         Map<String, String> envVars = new HashMap<>();
         envVars.put(
                 "SPRING_KAFKA_BOOTSTRAP_SERVERS",
-                System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka-bootstrap-not-configured:9092")
+                System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092")
         );
         envVars.put(
                 "SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL",
