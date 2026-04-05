@@ -86,6 +86,16 @@ public class GithubActionsOidcRoleStack extends Stack {
                                                         "cloudformation:DescribeStacks"
                                                 ))
                                                 .resources(List.of("*"))
+                                                .build(),
+                                        PolicyStatement.Builder.create()
+                                                .effect(Effect.ALLOW)
+                                                .actions(List.of("ssm:GetParameter"))
+                                                .resources(List.of("arn:aws:ssm:*:*:parameter/cdk-bootstrap/*"))
+                                                .build(),
+                                        PolicyStatement.Builder.create()
+                                                .effect(Effect.ALLOW)
+                                                .actions(List.of("sts:AssumeRole"))
+                                                .resources(List.of("arn:aws:iam::*:role/cdk-hnb659fds-*"))
                                                 .build()
                                 ))
                                 .build()
