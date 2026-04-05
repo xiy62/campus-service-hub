@@ -91,6 +91,7 @@ Recommended deployment order:
    - `campus-service-hub-github-oidc`
 2. Run GitHub Actions `Infra Deploy` workflow when infrastructure changes:
    - Deploys `campus-service-hub-ecr`
+   - Seeds initial `linux/amd64` images into ECR
    - Deploys `campus-service-hub` and `campus-service-hub-kafka`
    - Optionally deploys `campus-service-hub-github-oidc` when `GITHUB_OWNER` and `GITHUB_REPO` are set
 3. Run GitHub Actions `App Deploy` workflow when service code changes:
