@@ -167,6 +167,21 @@ jobs:
           IMAGE_TAG: seed-${{ github.sha }}
         run: |
           set -euo pipefail
+          : "${CDK_STACK_NAME:=campus-service-hub}"
+
+          # Skip seeding if the core stack already exists — images are present
+          # from a prior deploy and the app pipeline manages them from here on.
+          # Seeding is only needed on first-time bootstrap of a fresh environment.
+          core_status="$(aws cloudformation describe-stacks \
+            --stack-name "${CDK_STACK_NAME}" \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")"
+
+          if [[ "${core_status}" == *"COMPLETE"* ]]; then
+            echo "Core stack already exists (${core_status}) — skipping image seed."
+            exit 0
+          fi
+
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
           build_and_push() {
