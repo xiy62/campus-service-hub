@@ -180,6 +180,8 @@ public class LocalStack extends Stack {
                 .assignPublicIp(false)
                 .serviceName(imageName)
                 .desiredCount(this.desiredServiceCount)
+                .minHealthyPercent(0)
+                .maxHealthyPercent(200)
                 .cloudMapOptions(CloudMapOptions.builder()
                         .name(imageName)
                         .build())
@@ -226,6 +228,8 @@ public class LocalStack extends Stack {
                         .serviceName("api-gateway")
                         .taskDefinition(taskDefinition)
                         .desiredCount(this.desiredServiceCount)
+                        .minHealthyPercent(0)
+                        .maxHealthyPercent(200)
                         .healthCheckGracePeriod(Duration.seconds(180))
                         .build();
 

@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Validate required infra settings
         run: |
@@ -60,20 +60,20 @@ jobs:
           fi
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -85,6 +85,38 @@ jobs:
           set -euo pipefail
           cd infrastructure
           mvn -q -DskipTests compile
+
+      - name: Reconcile unmanaged ECR repositories
+        run: |
+          set -euo pipefail
+          : "${CDK_ECR_STACK_NAME:=campus-service-hub-ecr}"
+
+          # Repositories with RETAIN policy survive stack deletion.
+          # If the ECR stack no longer exists, any repos with our names are
+          # unmanaged and will cause EarlyValidation failures on the next
+          # CDK deploy. Delete them so CDK can recreate them cleanly.
+          # Images are always re-seeded in the step that follows.
+          ecr_stack_status="$(aws cloudformation describe-stacks \
+            --stack-name "${CDK_ECR_STACK_NAME}" \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")"
+
+          if [[ "${ecr_stack_status}" == *"COMPLETE"* ]]; then
+            echo "ECR stack exists (${ecr_stack_status}), repositories are managed — skipping cleanup."
+          else
+            echo "ECR stack status: ${ecr_stack_status}. Removing any retained repositories so CDK can recreate them."
+            for repo in \
+              campus/auth-service \
+              campus/request-service \
+              campus/billing-service \
+              campus/analytics-service \
+              campus/api-gateway; do
+              if aws ecr describe-repositories --repository-names "${repo}" &>/dev/null; then
+                echo "  Deleting retained repository: ${repo}"
+                aws ecr delete-repository --repository-name "${repo}" --force
+              fi
+            done
+          fi
 
       - name: Deploy ECR stack
         run: |
@@ -128,7 +160,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Seed initial images
         env:
