@@ -82,8 +82,17 @@ public class GithubActionsOidcRoleStack extends Stack {
                                         PolicyStatement.Builder.create()
                                                 .effect(Effect.ALLOW)
                                                 .actions(List.of(
+                                                        "cloudformation:DescribeStackResource",
                                                         "cloudformation:DescribeStackResources",
                                                         "cloudformation:DescribeStacks"
+                                                ))
+                                                .resources(List.of("*"))
+                                                .build(),
+                                        PolicyStatement.Builder.create()
+                                                .effect(Effect.ALLOW)
+                                                .actions(List.of(
+                                                        "kafka:GetBootstrapBrokers",
+                                                        "kafka:ListClustersV2"
                                                 ))
                                                 .resources(List.of("*"))
                                                 .build(),
