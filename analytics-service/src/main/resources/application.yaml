@@ -9,3 +9,4 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 
+
