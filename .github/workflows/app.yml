@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - name: Validate required app deployment settings
         run: |
@@ -67,6 +69,44 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Detect changed services
+        id: changes
+        run: |
+          set -euo pipefail
+
+          # On workflow_dispatch there is no previous commit to diff against —
+          # treat all services as changed so a manual trigger always deploys everything.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger — marking all services changed."
+            echo "auth=true"           >> "$GITHUB_OUTPUT"
+            echo "request=true"        >> "$GITHUB_OUTPUT"
+            echo "billing=true"        >> "$GITHUB_OUTPUT"
+            echo "analytics=true"      >> "$GITHUB_OUTPUT"
+            echo "gateway=true"        >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # If workflow config itself changed, rebuild everything.
+          if echo "$CHANGED" | grep -qE "^\.github/workflows/app\.yml$|^docker-compose\.yml$"; then
+            echo "Workflow or compose file changed — marking all services changed."
+            echo "auth=true"           >> "$GITHUB_OUTPUT"
+            echo "request=true"        >> "$GITHUB_OUTPUT"
+            echo "billing=true"        >> "$GITHUB_OUTPUT"
+            echo "analytics=true"      >> "$GITHUB_OUTPUT"
+            echo "gateway=true"        >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$CHANGED" | grep -q "^auth-service/"      && echo "auth=true"      >> "$GITHUB_OUTPUT" || echo "auth=false"      >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -q "^request-service/"   && echo "request=true"   >> "$GITHUB_OUTPUT" || echo "request=false"   >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -q "^billing-service/"   && echo "billing=true"   >> "$GITHUB_OUTPUT" || echo "billing=false"   >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -q "^analytics-service/" && echo "analytics=true" >> "$GITHUB_OUTPUT" || echo "analytics=false" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -q "^api-gateway/"       && echo "gateway=true"   >> "$GITHUB_OUTPUT" || echo "gateway=false"   >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
@@ -147,9 +187,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push service images
+      - name: Build and push changed service images
         env:
           IMAGE_TAG: ${{ github.sha }}
+          AUTH_CHANGED: ${{ steps.changes.outputs.auth }}
+          REQUEST_CHANGED: ${{ steps.changes.outputs.request }}
+          BILLING_CHANGED: ${{ steps.changes.outputs.billing }}
+          ANALYTICS_CHANGED: ${{ steps.changes.outputs.analytics }}
+          GATEWAY_CHANGED: ${{ steps.changes.outputs.gateway }}
         run: |
           set -euo pipefail
           ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -168,31 +213,51 @@ jobs:
               "${context}"
           }
 
-          build_and_push "./auth-service" "${ECR_REPOSITORY_AUTH_SERVICE}"
-          build_and_push "./request-service" "${ECR_REPOSITORY_REQUEST_SERVICE}"
-          build_and_push "./billing-service" "${ECR_REPOSITORY_BILLING_SERVICE}"
-          build_and_push "./analytics-service" "${ECR_REPOSITORY_ANALYTICS_SERVICE}"
-          build_and_push "./api-gateway" "${ECR_REPOSITORY_API_GATEWAY}"
+          [ "${AUTH_CHANGED}" = "true" ]      && build_and_push "./auth-service"      "${ECR_REPOSITORY_AUTH_SERVICE}"
+          [ "${REQUEST_CHANGED}" = "true" ]   && build_and_push "./request-service"   "${ECR_REPOSITORY_REQUEST_SERVICE}"
+          [ "${BILLING_CHANGED}" = "true" ]   && build_and_push "./billing-service"   "${ECR_REPOSITORY_BILLING_SERVICE}"
+          [ "${ANALYTICS_CHANGED}" = "true" ] && build_and_push "./analytics-service" "${ECR_REPOSITORY_ANALYTICS_SERVICE}"
+          [ "${GATEWAY_CHANGED}" = "true" ]   && build_and_push "./api-gateway"       "${ECR_REPOSITORY_API_GATEWAY}"
 
-      - name: Trigger ECS rolling deploy
+      - name: Trigger ECS rolling deploy for changed services
+        env:
+          AUTH_CHANGED: ${{ steps.changes.outputs.auth }}
+          REQUEST_CHANGED: ${{ steps.changes.outputs.request }}
+          BILLING_CHANGED: ${{ steps.changes.outputs.billing }}
+          ANALYTICS_CHANGED: ${{ steps.changes.outputs.analytics }}
+          GATEWAY_CHANGED: ${{ steps.changes.outputs.gateway }}
         run: |
           set -euo pipefail
 
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${AUTH_CHANGED}" = "true" ]      && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}"      --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${REQUEST_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${BILLING_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${ANALYTICS_CHANGED}" = "true" ] && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${GATEWAY_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}"       --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
 
-      - name: Wait for ECS services to stabilize
+      - name: Wait for changed services to stabilize
+        env:
+          AUTH_CHANGED: ${{ steps.changes.outputs.auth }}
+          REQUEST_CHANGED: ${{ steps.changes.outputs.request }}
+          BILLING_CHANGED: ${{ steps.changes.outputs.billing }}
+          ANALYTICS_CHANGED: ${{ steps.changes.outputs.analytics }}
+          GATEWAY_CHANGED: ${{ steps.changes.outputs.gateway }}
         run: |
           set -euo pipefail
 
-          # All five services deploy in parallel so wait on all simultaneously.
-          aws ecs wait services-stable --cluster "${ECS_CLUSTER_NAME}" \
-            --services \
-              "${ECS_SERVICE_AUTH_SERVICE}" \
-              "${ECS_SERVICE_REQUEST_SERVICE}" \
-              "${ECS_SERVICE_BILLING_SERVICE}" \
-              "${ECS_SERVICE_ANALYTICS_SERVICE}" \
-              "${ECS_SERVICE_API_GATEWAY}"
+          CHANGED_SERVICES=()
+          [ "${AUTH_CHANGED}" = "true" ]      && CHANGED_SERVICES+=("${ECS_SERVICE_AUTH_SERVICE}")
+          [ "${REQUEST_CHANGED}" = "true" ]   && CHANGED_SERVICES+=("${ECS_SERVICE_REQUEST_SERVICE}")
+          [ "${BILLING_CHANGED}" = "true" ]   && CHANGED_SERVICES+=("${ECS_SERVICE_BILLING_SERVICE}")
+          [ "${ANALYTICS_CHANGED}" = "true" ] && CHANGED_SERVICES+=("${ECS_SERVICE_ANALYTICS_SERVICE}")
+          [ "${GATEWAY_CHANGED}" = "true" ]   && CHANGED_SERVICES+=("${ECS_SERVICE_API_GATEWAY}")
+
+          if [ ${#CHANGED_SERVICES[@]} -eq 0 ]; then
+            echo "No services changed — nothing to wait for."
+            exit 0
+          fi
+
+          echo "Waiting for: ${CHANGED_SERVICES[*]}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${CHANGED_SERVICES[@]}"
