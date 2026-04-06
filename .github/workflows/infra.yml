@@ -176,6 +176,7 @@ jobs:
             echo "Seeding linux/amd64 ${image_uri}:${IMAGE_TAG}"
             docker buildx build \
               --platform linux/amd64 \
+              --provenance=false \
               --tag "${image_uri}:${IMAGE_TAG}" \
               --tag "${image_uri}:latest" \
               --push \
