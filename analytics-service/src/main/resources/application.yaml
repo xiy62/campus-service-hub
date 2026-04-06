@@ -7,3 +7,4 @@ spring:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:analytics-service}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+
