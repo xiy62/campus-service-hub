@@ -174,13 +174,40 @@ jobs:
             --require-approval never
 
           # Reconcile core with resolved MSK bootstrap endpoints.
-          KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stacks --stack-name "${CDK_KAFKA_STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='KafkaClusterArn'].OutputValue | [0]" --output text)"
+          # Prefer the physical resource ID for logical ID MskCluster to avoid brittle output-key matching.
+          KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stack-resource \
+            --stack-name "${CDK_KAFKA_STACK_NAME}" \
+            --logical-resource-id "MskCluster" \
+            --query "StackResourceDetail.PhysicalResourceId" \
+            --output text 2>/dev/null || true)"
+
           if [ -z "${KAFKA_CLUSTER_ARN}" ] || [ "${KAFKA_CLUSTER_ARN}" = "None" ] || [ "${KAFKA_CLUSTER_ARN}" = "null" ]; then
-            echo "Failed to resolve KafkaClusterArn from ${CDK_KAFKA_STACK_NAME}." >&2
+            KAFKA_CLUSTER_ARN="$(aws kafka list-clusters-v2 \
+              --cluster-name-filter "kafka-cluster" \
+              --query "ClusterInfoList[0].ClusterArn" \
+              --output text 2>/dev/null || true)"
+          fi
+
+          if [ -z "${KAFKA_CLUSTER_ARN}" ] || [ "${KAFKA_CLUSTER_ARN}" = "None" ] || [ "${KAFKA_CLUSTER_ARN}" = "null" ]; then
+            echo "Failed to resolve Kafka cluster ARN from ${CDK_KAFKA_STACK_NAME}." >&2
             exit 1
           fi
 
-          KAFKA_BOOTSTRAP_SERVERS="$(aws kafka get-bootstrap-brokers --cluster-arn "${KAFKA_CLUSTER_ARN}" --query 'BootstrapBrokerStringTls' --output text)"
+          KAFKA_BOOTSTRAP_SERVERS=""
+          for attempt in $(seq 1 50); do
+            KAFKA_BOOTSTRAP_SERVERS="$(aws kafka get-bootstrap-brokers \
+              --cluster-arn "${KAFKA_CLUSTER_ARN}" \
+              --query 'BootstrapBrokerStringTls' \
+              --output text 2>/dev/null || true)"
+
+            if [ -n "${KAFKA_BOOTSTRAP_SERVERS}" ] && [ "${KAFKA_BOOTSTRAP_SERVERS}" != "None" ] && [ "${KAFKA_BOOTSTRAP_SERVERS}" != "null" ]; then
+              break
+            fi
+
+            echo "Waiting for MSK bootstrap brokers to become available (attempt ${attempt}/50)..."
+            sleep 30
+          done
+
           if [ -z "${KAFKA_BOOTSTRAP_SERVERS}" ] || [ "${KAFKA_BOOTSTRAP_SERVERS}" = "None" ] || [ "${KAFKA_BOOTSTRAP_SERVERS}" = "null" ]; then
             echo "Failed to resolve MSK bootstrap brokers for ${KAFKA_CLUSTER_ARN}." >&2
             exit 1
