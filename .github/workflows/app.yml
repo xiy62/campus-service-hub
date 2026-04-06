@@ -211,11 +211,11 @@ jobs:
             docker push "${image_uri}:latest"
           }
 
-          [ "${AUTH_CHANGED}" = "true" ]      && build_and_push "./auth-service"      "${ECR_REPOSITORY_AUTH_SERVICE}"
-          [ "${REQUEST_CHANGED}" = "true" ]   && build_and_push "./request-service"   "${ECR_REPOSITORY_REQUEST_SERVICE}"
-          [ "${BILLING_CHANGED}" = "true" ]   && build_and_push "./billing-service"   "${ECR_REPOSITORY_BILLING_SERVICE}"
-          [ "${ANALYTICS_CHANGED}" = "true" ] && build_and_push "./analytics-service" "${ECR_REPOSITORY_ANALYTICS_SERVICE}"
-          [ "${GATEWAY_CHANGED}" = "true" ]   && build_and_push "./api-gateway"       "${ECR_REPOSITORY_API_GATEWAY}"
+          [ "${AUTH_CHANGED}" = "true" ]      && build_and_push "./auth-service"      "${ECR_REPOSITORY_AUTH_SERVICE}"      || true
+          [ "${REQUEST_CHANGED}" = "true" ]   && build_and_push "./request-service"   "${ECR_REPOSITORY_REQUEST_SERVICE}"   || true
+          [ "${BILLING_CHANGED}" = "true" ]   && build_and_push "./billing-service"   "${ECR_REPOSITORY_BILLING_SERVICE}"   || true
+          [ "${ANALYTICS_CHANGED}" = "true" ] && build_and_push "./analytics-service" "${ECR_REPOSITORY_ANALYTICS_SERVICE}" || true
+          [ "${GATEWAY_CHANGED}" = "true" ]   && build_and_push "./api-gateway"       "${ECR_REPOSITORY_API_GATEWAY}"       || true
 
       - name: Trigger ECS rolling deploy for changed services
         env:
@@ -227,11 +227,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          [ "${AUTH_CHANGED}" = "true" ]      && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}"      --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          [ "${REQUEST_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          [ "${BILLING_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          [ "${ANALYTICS_CHANGED}" = "true" ] && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
-          [ "${GATEWAY_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}"       --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null
+          [ "${AUTH_CHANGED}" = "true" ]      && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_AUTH_SERVICE}"      --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null || true
+          [ "${REQUEST_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_REQUEST_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null || true
+          [ "${BILLING_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_BILLING_SERVICE}"   --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null || true
+          [ "${ANALYTICS_CHANGED}" = "true" ] && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_ANALYTICS_SERVICE}" --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null || true
+          [ "${GATEWAY_CHANGED}" = "true" ]   && aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_API_GATEWAY}"       --desired-count "${ECS_SERVICE_DESIRED_COUNT}" --force-new-deployment >/dev/null || true
 
       - name: Wait for changed services to stabilize
         env:
