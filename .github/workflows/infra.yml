@@ -174,12 +174,20 @@ jobs:
             --require-approval never
 
           # Reconcile core with resolved MSK bootstrap endpoints.
-          # Prefer the physical resource ID for logical ID MskCluster to avoid brittle output-key matching.
-          KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stack-resource \
+          # First try CloudFormation outputs (most stable for current permissions),
+          # then fall back to resource lookup paths.
+          KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stacks \
             --stack-name "${CDK_KAFKA_STACK_NAME}" \
-            --logical-resource-id "MskCluster" \
-            --query "StackResourceDetail.PhysicalResourceId" \
+            --query "Stacks[0].Outputs[?OutputKey=='KafkaClusterArn'].OutputValue | [0]" \
             --output text 2>/dev/null || true)"
+
+          if [ -z "${KAFKA_CLUSTER_ARN}" ] || [ "${KAFKA_CLUSTER_ARN}" = "None" ] || [ "${KAFKA_CLUSTER_ARN}" = "null" ]; then
+            KAFKA_CLUSTER_ARN="$(aws cloudformation describe-stack-resource \
+              --stack-name "${CDK_KAFKA_STACK_NAME}" \
+              --logical-resource-id "MskCluster" \
+              --query "StackResourceDetail.PhysicalResourceId" \
+              --output text 2>/dev/null || true)"
+          fi
 
           if [ -z "${KAFKA_CLUSTER_ARN}" ] || [ "${KAFKA_CLUSTER_ARN}" = "None" ] || [ "${KAFKA_CLUSTER_ARN}" = "null" ]; then
             KAFKA_CLUSTER_ARN="$(aws kafka list-clusters-v2 \
